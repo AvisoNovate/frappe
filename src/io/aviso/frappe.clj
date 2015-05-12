@@ -25,7 +25,7 @@
 
     The callback is also invoked when it is first added to the Cell.
 
-    The order in which callbacks are invoked (when changes occur) is not specified.
+    The order in which callbacks are invoked (when changes do occur) is not specified.
 
     Returns the cell.")
 
@@ -42,8 +42,17 @@
     Returns the cell.")
 
   (add-dependency! [this other]
-    "Adds another cell as a dependency of the receiving cell. When this cell's value changes,
-    each dependency is notified to recompute its value.
+    "Adds the other cell as a dependency of this cell. This allows the order in which cells are
+    recalculated after a change to be optimized.
+
+    Returns this cell.")
+
+  (dependencies [this]
+    "Returns the set of dependencies for this cell (used to order recalculations).")
+
+  (add-dependant! [this other]
+    "Adds another cell as a dependant of the this cell. When this cell's value changes,
+    each dependeant is notified to recompute its value.
 
     Returns this cell."))
 
@@ -92,7 +101,8 @@
 
   A cell may be dereferenced (use the @ reader macro, or deref special form)."
   [f]
-  (let [dependencies     (atom #{})
+  (let [dependants       (atom #{})                         ; recalced when this cell changes
+        dependencies     (atom #{})                         ; reverse of dependenant-cells
         change-listeners (atom [])
         current-value    (atom nil)
         cell             (reify
@@ -104,10 +114,15 @@
                              (callback @current-value)
                              this)
 
+                           (add-dependant! [this other]
+                             (swap! dependants conj other)
+                             this)
+
                            (add-dependency! [this other]
-                             ;; TODO: check for cycles?
                              (swap! dependencies conj other)
                              this)
+
+                           (dependencies [_] @dependencies)
 
                            (recalc! [this]
                              (force! this (f)))
@@ -131,7 +146,7 @@
                                  ;; These behaviors are deferred to help avoid redundant work.
                                  (doseq [listener @change-listeners]
                                    (add-callback! listener new-value))
-                                 (doseq [cell @dependencies]
+                                 (doseq [cell @dependants]
                                    (add-dirty-cell! cell))))
 
                              this)
@@ -139,8 +154,12 @@
                            IDeref
 
                            (deref [this]
-                             (if *defining-cell*
-                               (add-dependency! this *defining-cell*))
+                             (when *defining-cell*
+                               ;; This cell was dereferenced while defining another cell. That means
+                               ;; the cell being defined is a dependant of this cell, and should recalc
+                               ;; when this cell changes.
+                               (add-dependant! this *defining-cell*)
+                               (add-dependency! *defining-cell* this))
 
                              @current-value)
 
@@ -164,10 +183,17 @@
   (do
     (require '[clojure.string :as str])
     (def s (cell "Howard"))
-    (def u (cell (str/upper-case @s)))
-    (def r (cell (str (apply str (reverse @u))
-                      "-"
-                      @s)))
+    (def u (cell
+             (println "recalc: u")
+             (str/upper-case @s)))
+    (def r (cell
+             (println "recalc: r")
+             (str (apply str (reverse @u))
+                  "-"
+                  @s)))
+    (on-change! u #(println "u changed to" %))
     (on-change! r #(println "r changed to" %)))
   (force! s "Suzy")
+  (force! s "Jacob")
+  (force! s "JACob")
   )
