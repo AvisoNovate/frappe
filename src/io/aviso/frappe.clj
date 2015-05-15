@@ -125,20 +125,22 @@
        (finish-reaction!)
        result#)))
 
-(defrecord CellImpl [id f dependants change-listeners current-value]
+(defrecord CellData [dependants change-listeners current-value])
+
+(defrecord ^:no-doc CellImpl [id f cell-data]
 
   Cell
 
   (on-change! [this callback]
-    (swap! change-listeners conj callback)
-    (callback @current-value)
+    (swap! cell-data update :change-listeners conj callback)
+    (callback @this)
     this)
 
   (add-dependant! [this other]
-    (swap! dependants conj other)
+    (swap! cell-data update :dependants conj other)
     this)
 
-  (dependants [_] @dependants)
+  (dependants [_] (:dependants @cell-data))
 
   (recalc! [this]
     (force! this (f)))
@@ -147,7 +149,7 @@
     (cond
       ;; In many cases, the new computed value is the same as the prior value so
       ;; there's no need to go further.
-      (= @current-value new-value)
+      (= @this new-value)
       nil
 
       ;; Create, as needed, a reactive transaction.
@@ -156,12 +158,11 @@
         (force! this new-value))
 
       :else
-      (do
-        (reset! current-value new-value)
+      (let [{:keys [change-listeners dependants]} (swap! cell-data assoc :current-value new-value)]
         ;; These behaviors are deferred to help avoid redundant work.
-        (doseq [listener @change-listeners]
+        (doseq [listener change-listeners]
           (add-callback! listener new-value))
-        (doseq [cell @dependants]
+        (doseq [cell dependants]
           (add-dirty-cell! cell))))
 
     this)
@@ -174,19 +175,18 @@
       ;; This cell was dereferenced while defining another cell. That means
       ;; the cell being defined is a dependant of this cell, and should recalc
       ;; when this cell changes.
-      (add-dependant! this *defining-cell*))
+      (if-not (= this *defining-cell*)
+        (add-dependant! this *defining-cell*)))
 
-    @current-value))
+    (:current-value @cell-data)))
 
 (defmethod print-method CellImpl [cell ^Writer w]
   (.write w (str "io.aviso.frappe.Cell[" (:id cell) "]")))
 
 (defmethod pp/simple-dispatch CellImpl
   [cell]
-  (pp/simple-dispatch {:id               (:id cell)
-                       :dependants       @(:dependants cell)
-                       :change-listeners @(:change-listeners cell)
-                       :current-value    @(:current-value cell)}))
+  (let [cell-data (-> cell :cell-data deref)]
+    (pp/simple-dispatch (assoc cell-data :id (:id cell)))))
 
 (def ^:private next-cell-id (AtomicInteger. 0))
 
@@ -196,7 +196,9 @@
 
   A cell may be dereferenced (use the @ reader macro, or deref special form)."
   [f]
-  (let [cell (->CellImpl (.incrementAndGet next-cell-id) f (atom #{}) (atom []) (atom nil))]
+  (let [cell (->CellImpl (.incrementAndGet next-cell-id)
+                         f
+                         (atom (->CellData #{} [] nil)))]
     ;; This forces an evaluation of the cell, which will trigger any dependencies, letting
     ;; us build up the graph.
     (binding [*defining-cell* cell]
@@ -212,6 +214,7 @@
   (do
     (require '[clojure.string :as str])
     (use 'clojure.pprint)
+    (use 'clojure.repl)
     (def s (cell "Howard"))
     (def u (cell
              (println "recalc: u")
