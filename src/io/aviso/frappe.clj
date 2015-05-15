@@ -1,10 +1,13 @@
 (ns io.aviso.frappe
   "A take on server-side functional/reactive programming, with an eye towards smart publishing."
   (:require [io.aviso.toolchest.macros :refer [cond-let]]
-            [com.stuartsierra.dependency :as dep])
-  (:import [clojure.lang IDeref]))
+            [com.stuartsierra.dependency :as dep]
+            [clojure.pprint :as pp])
+  (:import [clojure.lang IDeref IPersistentMap]
+           [java.io Writer]
+           [java.util.concurrent.atomic AtomicInteger]))
 
-(def ^:dynamic *defining-cell*
+(def ^:dynamic ^:no-doc *defining-cell*
   "Identifies the cell that is currently being defined (and executed) to establish dependencies."
   nil)
 
@@ -13,7 +16,7 @@
    :pending-recalcs   #{}
    :pending-callbacks []})
 
-(def ^:dynamic *reaction*
+(def ^:dynamic ^:no-doc *reaction*
   "A atom that tracks information about the current reactive transaction."
   nil)
 
@@ -43,12 +46,6 @@
 
     Returns the cell.")
 
-  (add-dependency! [this other]
-    "Adds the other cell as a dependency of this cell. This allows the order in which cells are
-    recalculated after a change to be optimized.
-
-    Returns this cell.")
-
   (add-dependant! [this other]
     "Adds another cell as a dependant of the this cell. When this cell's value changes,
     each dependeant is notified to recompute its value.
@@ -56,7 +53,7 @@
     Returns this cell.")
 
   (dependants [this]
-    "Returns the dependants of this cell; cells who value depends on this cell."))
+    "Returns the dependants of this cell; cells whose value depends on this cell."))
 
 (defn- add-if-not-pending-recalc [reaction cell]
   (if (-> reaction :pending-recalcs (contains? cell))
@@ -71,7 +68,7 @@
   [callback cell-value]
   (swap! *reaction* update :pending-callbacks conj [callback cell-value]))
 
-(defn- finish-reaction!
+(defn ^:no-doc finish-reaction!
   []
   (loop [i 0]
     (cond-let
@@ -118,79 +115,92 @@
         ;; further dirty cells & callbacks.
         (recur (inc i))))))
 
+(defmacro reaction
+  "A reaction is a reactive transaction; it is useful when invoking [[force!]] on several
+  cells to handle the notifications as a single unit, which reduces the number of iterations necessary
+  to propogate changes through the graph, and helps reduce the chances of an unnecessary recalc."
+  [& body]
+  `(binding [*reaction* (atom empty-reaction)]
+     (let [result# (do ~@body)]
+       (finish-reaction!)
+       result#)))
+
+(defrecord ^:no-doc CellImpl [id f dependants change-listeners current-value]
+
+  Cell
+
+  (on-change! [this callback]
+    (swap! change-listeners conj callback)
+    (callback @current-value)
+    this)
+
+  (add-dependant! [this other]
+    (swap! dependants conj other)
+    this)
+
+  (dependants [_] @dependants)
+
+  (recalc! [this]
+    (force! this (f)))
+
+  (force! [this new-value]
+    (cond
+      ;; In many cases, the new computed value is the same as the prior value so
+      ;; there's no need to go further.
+      (= @current-value new-value)
+      nil
+
+      ;; Create, as needed, a reactive transaction.
+      (nil? *reaction*)
+      (reaction
+        (force! this new-value))
+
+      :else
+      (do
+        (reset! current-value new-value)
+        ;; These behaviors are deferred to help avoid redundant work.
+        (doseq [listener @change-listeners]
+          (add-callback! listener new-value))
+        (doseq [cell @dependants]
+          (add-dirty-cell! cell))))
+
+    this)
+
+
+  IDeref
+
+  (deref [this]
+    (when *defining-cell*
+      ;; This cell was dereferenced while defining another cell. That means
+      ;; the cell being defined is a dependant of this cell, and should recalc
+      ;; when this cell changes.
+      (add-dependant! this *defining-cell*))
+
+    @current-value))
+
+(defmethod print-method CellImpl [cell ^Writer w]
+  (.write w (str "io.aviso.frappe.Cell[" (:id cell) "]")))
+
+(prefer-method pp/simple-dispatch IPersistentMap IDeref)
+
+(def ^:private next-cell-id (AtomicInteger. 0))
+
 (defn cell*
   "Creates a new cell around a function of no arguments that computes its value.
   The function is almost always a closure that can reference other cells.
 
   A cell may be dereferenced (use the @ reader macro, or deref special form)."
   [f]
-  (let [dependants       (atom #{})                         ; recalced when this cell changes
-        change-listeners (atom [])
-        current-value    (atom nil)
-        cell             (reify
-
-                           Cell
-
-                           (on-change! [this callback]
-                             (swap! change-listeners conj callback)
-                             (callback @current-value)
-                             this)
-
-                           (add-dependant! [this other]
-                             (swap! dependants conj other)
-                             this)
-
-                           (dependants [this] @dependants)
-
-                           (recalc! [this]
-                             (force! this (f)))
-
-                           (force! [this new-value]
-                             (cond
-                               ;; In many cases, the new computed value is the same as the prior value so
-                               ;; there's no need to go further.
-                               (= @current-value new-value)
-                               nil
-
-                               ;; Create, as needed, a reactive transaction.
-                               (nil? *reaction*)
-                               (binding [*reaction* (atom empty-reaction)]
-                                 (force! this new-value)
-                                 (finish-reaction!))
-
-                               :else
-                               (do
-                                 (reset! current-value new-value)
-                                 ;; These behaviors are deferred to help avoid redundant work.
-                                 (doseq [listener @change-listeners]
-                                   (add-callback! listener new-value))
-                                 (doseq [cell @dependants]
-                                   (add-dirty-cell! cell))))
-
-                             this)
-
-                           IDeref
-
-                           (deref [this]
-                             (when *defining-cell*
-                               ;; This cell was dereferenced while defining another cell. That means
-                               ;; the cell being defined is a dependant of this cell, and should recalc
-                               ;; when this cell changes.
-                               (add-dependant! this *defining-cell*)
-                               (add-dependency! *defining-cell* this))
-
-                             @current-value))]
-
+  (let [cell (->CellImpl (.incrementAndGet next-cell-id) f (atom #{}) (atom []) (atom nil))]
+    ;; This forces an evaluation of the cell, which will trigger any dependencies, letting
+    ;; us build up the graph.
     (binding [*defining-cell* cell]
-      ;; Exercise the function to collect dependencies.
-      ;; In some cases, the function may need to explicitly deref cells that may otherwise
-      ;; only be invoked in some cases, or lazily.
-      (reset! current-value (f)))
+      (recalc! cell))
     cell))
 
 (defmacro cell
-  [& body]
   "Creates a cell, wrapping the body up as the necessary function used by [[cell*]]."
+  [& body]
   `(cell* (fn [] ~@body)))
 
 (comment
