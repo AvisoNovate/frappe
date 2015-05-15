@@ -181,7 +181,12 @@
 (defmethod print-method CellImpl [cell ^Writer w]
   (.write w (str "io.aviso.frappe.Cell[" (:id cell) "]")))
 
-(prefer-method pp/simple-dispatch IPersistentMap IDeref)
+(defmethod pp/simple-dispatch CellImpl
+  [cell]
+  (pp/simple-dispatch {:id               (:id cell)
+                       :dependants       @(:dependants cell)
+                       :change-listeners @(:change-listeners cell)
+                       :current-value    @(:current-value cell)}))
 
 (def ^:private next-cell-id (AtomicInteger. 0))
 
@@ -206,6 +211,7 @@
 (comment
   (do
     (require '[clojure.string :as str])
+    (use 'clojure.pprint)
     (def s (cell "Howard"))
     (def u (cell
              (println "recalc: u")
