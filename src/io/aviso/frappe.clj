@@ -118,7 +118,7 @@
 (defmacro reaction
   "A reaction is a reactive transaction; it is useful when invoking [[force!]] on several
   cells to handle the notifications as a single unit, which reduces the number of iterations necessary
-  to propogate changes through the graph, and helps reduce the chances of an unnecessary recalc."
+  to propogate changes through the graph, and helps reduce the chances of an redundant recalc."
   [& body]
   `(binding [*reaction* (atom empty-reaction)]
      (let [result# (do ~@body)]
