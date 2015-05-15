@@ -149,7 +149,7 @@
     (cond
       ;; In many cases, the new computed value is the same as the prior value so
       ;; there's no need to go further.
-      (= @this new-value)
+      (= (:current-value @cell-data) new-value)
       nil
 
       ;; Create, as needed, a reactive transaction.
@@ -175,8 +175,7 @@
       ;; This cell was dereferenced while defining another cell. That means
       ;; the cell being defined is a dependant of this cell, and should recalc
       ;; when this cell changes.
-      (if-not (= this *defining-cell*)
-        (add-dependant! this *defining-cell*)))
+      (add-dependant! this *defining-cell*))
 
     (:current-value @cell-data)))
 
@@ -202,7 +201,8 @@
     ;; This forces an evaluation of the cell, which will trigger any dependencies, letting
     ;; us build up the graph.
     (binding [*defining-cell* cell]
-      (recalc! cell))
+      (force! cell (f)))
+
     cell))
 
 (defmacro cell
