@@ -1,6 +1,7 @@
 (ns io.aviso.frappe
   "A take on server-side functional/reactive programming, with an eye towards smart publishing."
-  (:require [io.aviso.toolchest.macros :refer [cond-let]])
+  (:require [io.aviso.toolchest.macros :refer [cond-let]]
+            [com.stuartsierra.dependency :as dep])
   (:import [clojure.lang IDeref]))
 
 (def ^:dynamic *defining-cell*
@@ -9,6 +10,7 @@
 
 (def ^:private empty-reaction
   {:dirty-cells       #{}
+   :pending-recalcs   #{}
    :pending-callbacks []})
 
 (def ^:dynamic *reaction*
@@ -47,22 +49,23 @@
 
     Returns this cell.")
 
-  (dependencies [this]
-    "Returns the set of dependencies for this cell (used to order recalculations).")
-
   (add-dependant! [this other]
     "Adds another cell as a dependant of the this cell. When this cell's value changes,
     each dependeant is notified to recompute its value.
 
-    Returns this cell."))
+    Returns this cell.")
+
+  (dependants [this]
+    "Returns the dependants of this cell; cells who value depends on this cell."))
+
+(defn- add-if-not-pending-recalc [reaction cell]
+  (if (-> reaction :pending-recalcs (contains? cell))
+    reaction
+    (update reaction :dirty-cells conj cell)))
 
 (defn- add-dirty-cell!
   [cell]
-  ;; This is a bit naive and we need something a lot smarter for large graphs.  If node X has a dependency on Y and Q,
-  ;; and Y has a dependency on Q, then a change to Q will cause X and Y to be recalculated ... and then X will be
-  ;; recalculated a second time. So we need to leverage the graph a bit more, to ensure that X is recalculated only
-  ;; after Y and Q are recalculated.
-  (swap! *reaction* update :dirty-cells conj cell))
+  (swap! *reaction* add-if-not-pending-recalc cell))
 
 (defn- add-callback!
   [callback cell-value]
@@ -85,9 +88,29 @@
 
       :else
       (do
-        (reset! *reaction* empty-reaction)
-        (doseq [cell dirty-cells]
-          (recalc! cell))
+        ;; This is an optimization designed to minimize unnecessary (or transitional) recalculations of a cell.
+        ;; If cell A depends on cell B and cell C, then order counts.  You want cells B and C to recalc before A.
+        ;; We use dependency ordering here; we identify that A is a dependant of B (that is, A depends on B)
+        ;; which ensures that A will recalc after B. Same for C. We cull out edges
+        (let [dependency-pairs (for [cell      dirty-cells
+                                     dependant (dependants cell)
+                                     :when (dirty-cells dependant)]
+                                 [cell dependant])
+              graph            (reduce (fn [g [dependency cell]] (dep/depend g cell dependency))
+                                       (dep/graph)
+                                       dependency-pairs)
+              comparator       (dep/topo-comparator graph)
+              ;; Order dependants before dependencies, with everything else in arbitrary order at
+              ;; the end.
+              recalc-order     (sort comparator dirty-cells)]
+
+          ;; Any cell in the current iteration that gets marked dirty will be ignored and not
+          ;; added to the next iteration.
+          (reset! *reaction* (assoc empty-reaction :pending-recalcs dirty-cells))
+
+          (doseq [cell recalc-order]
+            (recalc! cell)))
+
         (doseq [[callback value] pending-callbacks]
           (callback value))
 
@@ -102,7 +125,6 @@
   A cell may be dereferenced (use the @ reader macro, or deref special form)."
   [f]
   (let [dependants       (atom #{})                         ; recalced when this cell changes
-        dependencies     (atom #{})                         ; reverse of dependenant-cells
         change-listeners (atom [])
         current-value    (atom nil)
         cell             (reify
@@ -118,11 +140,7 @@
                              (swap! dependants conj other)
                              this)
 
-                           (add-dependency! [this other]
-                             (swap! dependencies conj other)
-                             this)
-
-                           (dependencies [_] @dependencies)
+                           (dependants [this] @dependants)
 
                            (recalc! [this]
                              (force! this (f)))
@@ -161,11 +179,7 @@
                                (add-dependant! this *defining-cell*)
                                (add-dependency! *defining-cell* this))
 
-                             @current-value)
-
-                           Object
-                           (toString [_]
-                             (str "io.aviso.frappe.Cell[" @current-value "]")))]
+                             @current-value))]
 
     (binding [*defining-cell* cell]
       ;; Exercise the function to collect dependencies.
@@ -186,12 +200,16 @@
     (def u (cell
              (println "recalc: u")
              (str/upper-case @s)))
-    (def r (cell
-             (println "recalc: r")
+    (def c (cell
+             (println "recalc: c")
              (str (apply str (reverse @u))
                   "-"
                   @s)))
+    (def r (cell
+             (println "recalc: r")
+             (apply str (reverse @u))))
     (on-change! u #(println "u changed to" %))
+    (on-change! c #(println "c changed to" %))
     (on-change! r #(println "r changed to" %)))
   (force! s "Suzy")
   (force! s "Jacob")
