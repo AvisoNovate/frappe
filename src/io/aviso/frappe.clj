@@ -125,7 +125,7 @@
        (finish-reaction!)
        result#)))
 
-(defrecord ^:no-doc CellImpl [id f dependants change-listeners current-value]
+(defrecord CellImpl [id f dependants change-listeners current-value]
 
   Cell
 
