@@ -2,7 +2,9 @@
   "A take on server-side functional/reactive programming, with an eye towards smart publishing."
   (:require [io.aviso.toolchest.macros :refer [cond-let]]
             [com.stuartsierra.dependency :as dep]
-            [clojure.pprint :as pp])
+            [clojure.pprint :as pp]
+            [medley.core :as medley]
+            [clojure.set :as set])
   (:import [clojure.lang IDeref]
            [java.io Writer]
            [java.util.concurrent.atomic AtomicInteger]
@@ -213,6 +215,47 @@
   "Creates a cell, wrapping the body up as the necessary function used by [[cell*]]."
   [& body]
   `(cell* (fn [] ~@body)))
+
+;;; This is feeling like something that should be dealt with using transducers.
+
+(defn map-cells
+  "Given a cell that contains a map of keys to cells, returns a new map with the same keys,
+  but new cells with the cell values transformed by the value-transform function."
+  [source-cell value-transform]
+  (cell (medley/map-vals
+          (fn [value-cell]
+            (cell (value-transform @value-cell)))
+          @source-cell)))
+
+(defn project-cell
+  "Given a map of keys to cells, returns a new cell with the same value as the cell
+  with the given key."
+  [source-cell k]
+  (cell @(get @source-cell k)))
+
+(defn delta-map-cell
+  "Given a source cell containing a map of keys to cells, returns a new cell
+  containing a map with two keys:  :added, :removed.
+
+  :added is map of new keys to value cells, for keys that did not exist previously.
+
+  :removed is map of prior keys to value cells, for keys that were removed."
+  [source-cell]
+  (let [prior-map (atom nil)]
+    (cell
+      (let [source-map @source-cell
+            source-map-keys (set (keys source-map))
+            prev-map @prior-map
+            prev-map-keys (set (keys prev-map))
+
+            added-keys (set/difference source-map-keys prev-map-keys)
+            removed-keys (set/difference prev-map-keys source-map-keys)]
+        ;; Save the source-map for the next iteration:
+        (reset! prior-map source-map)
+
+        {:added   (select-keys source-map added-keys)
+         :removed (select-keys prev-map removed-keys)}))))
+
 
 (comment
   (do
