@@ -219,6 +219,7 @@
     (require '[clojure.string :as str])
     (use 'clojure.pprint)
     (use 'clojure.repl)
+    (use 'criterium.core)
     (def s (cell "Howard"))
     (def u (cell
              (println "recalc: u")
