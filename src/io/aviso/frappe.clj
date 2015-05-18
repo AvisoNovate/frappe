@@ -191,7 +191,7 @@
     (pp/simple-dispatch (assoc cell-data :id (:id cell)
                                          :dependants (dependants cell)))))
 
-(def ^:private next-cell-id (AtomicInteger. 0))
+(defonce ^:private next-cell-id (AtomicInteger. 0))
 
 (defn cell*
   "Creates a new cell around a function of no arguments that computes its value.
