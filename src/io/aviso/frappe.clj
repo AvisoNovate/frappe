@@ -243,19 +243,23 @@
   [source-cell]
   (let [prior-map (atom nil)]
     (cell
-      (let [source-map @source-cell
+      (let [source-map      @source-cell
             source-map-keys (set (keys source-map))
-            prev-map @prior-map
-            prev-map-keys (set (keys prev-map))
+            prev-map        @prior-map
+            prev-map-keys   (set (keys prev-map))
 
-            added-keys (set/difference source-map-keys prev-map-keys)
-            removed-keys (set/difference prev-map-keys source-map-keys)]
+            added-keys      (set/difference source-map-keys prev-map-keys)
+            removed-keys    (set/difference prev-map-keys source-map-keys)]
         ;; Save the source-map for the next iteration:
         (reset! prior-map source-map)
 
         {:added   (select-keys source-map added-keys)
          :removed (select-keys prev-map removed-keys)}))))
 
+(defn select-cells
+  [key-filter source-cell]
+  (cell
+    (medley/filter-keys key-filter @source-cell)))
 
 (comment
   (do

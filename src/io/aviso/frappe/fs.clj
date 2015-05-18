@@ -20,6 +20,15 @@
         file-path (.getCanonicalPath file)]
     (subs file-path (inc (.length root-path)))))
 
+(defn with-extension
+  "Returns a File filter that matches by extension."
+  [ext]
+  (let [suffix (str "." ext)]
+    (fn [^File file]
+      (-> file
+          .getName
+          (.endsWith suffix)))))
+
 (defn find-file-cells
   "Finds files within a root directory, starting from a root path. Files must pass though
   the file filter.
@@ -28,7 +37,7 @@
   files will be included in the result (and directories, never).
   The default file-filter includes everything.
 
-  Returns a map of path (relative to the root-path) to file map cell."
+  Returns a cell containing a map of path (relative to the root-path) to file map cell."
   ([root-path file-cache]
    (find-file-cells root-path file-cache (constantly true)))
   ([root-path file-cache file-filter]
@@ -40,7 +49,8 @@
      (->>
        root-file
        file-seq
-       (into {} xf)))))
+       (into {} xf)
+       cell))))
 
 
 
