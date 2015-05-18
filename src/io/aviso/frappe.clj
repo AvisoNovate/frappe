@@ -3,9 +3,10 @@
   (:require [io.aviso.toolchest.macros :refer [cond-let]]
             [com.stuartsierra.dependency :as dep]
             [clojure.pprint :as pp])
-  (:import [clojure.lang IDeref IPersistentMap]
+  (:import [clojure.lang IDeref]
            [java.io Writer]
-           [java.util.concurrent.atomic AtomicInteger]))
+           [java.util.concurrent.atomic AtomicInteger]
+           [java.lang.ref WeakReference]))
 
 (def ^:dynamic ^:no-doc *defining-cell*
   "Identifies the cell that is currently being defined (and executed) to establish dependencies."
@@ -137,10 +138,12 @@
     this)
 
   (add-dependant! [this other]
-    (swap! cell-data update :dependants conj other)
+    (swap! cell-data update :dependants conj (WeakReference. other))
     this)
 
-  (dependants [_] (:dependants @cell-data))
+  (dependants [_] (keep
+                    #(.get ^WeakReference %)
+                    (:dependants @cell-data)))
 
   (recalc! [this]
     (force! this (f)))
@@ -158,11 +161,11 @@
         (force! this new-value))
 
       :else
-      (let [{:keys [change-listeners dependants]} (swap! cell-data assoc :current-value new-value)]
+      (let [{:keys [change-listeners]} (swap! cell-data assoc :current-value new-value)]
         ;; These behaviors are deferred to help avoid redundant work.
         (doseq [listener change-listeners]
           (add-callback! listener new-value))
-        (doseq [cell dependants]
+        (doseq [cell (dependants this)]
           (add-dirty-cell! cell))))
 
     this)
@@ -185,7 +188,8 @@
 (defmethod pp/simple-dispatch CellImpl
   [cell]
   (let [cell-data (-> cell :cell-data deref)]
-    (pp/simple-dispatch (assoc cell-data :id (:id cell)))))
+    (pp/simple-dispatch (assoc cell-data :id (:id cell)
+                                         :dependants (dependants cell)))))
 
 (def ^:private next-cell-id (AtomicInteger. 0))
 
