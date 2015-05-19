@@ -7,8 +7,7 @@
             [clojure.set :as set])
   (:import [clojure.lang IDeref]
            [java.io Writer]
-           [java.util.concurrent.atomic AtomicInteger]
-           [java.lang.ref WeakReference]))
+           [java.util.concurrent.atomic AtomicInteger]))
 
 (def ^:dynamic ^:no-doc *defining-cell*
   "Identifies the cell that is currently being defined (and executed) to establish dependencies."
@@ -140,12 +139,10 @@
     this)
 
   (add-dependant! [this other]
-    (swap! cell-data update :dependants conj (WeakReference. other))
+    (swap! cell-data update :dependants conj other)
     this)
 
-  (dependants [_] (keep
-                    #(.get ^WeakReference %)
-                    (:dependants @cell-data)))
+  (dependants [_] (:dependants @cell-data))
 
   (recalc! [this]
     (force! this (f)))
@@ -163,11 +160,11 @@
         (force! this new-value))
 
       :else
-      (let [{:keys [change-listeners]} (swap! cell-data assoc :current-value new-value)]
+      (let [{:keys [change-listeners dependants]} (swap! cell-data assoc :current-value new-value)]
         ;; These behaviors are deferred to help avoid redundant work.
         (doseq [listener change-listeners]
           (add-callback! listener new-value))
-        (doseq [cell (dependants this)]
+        (doseq [cell dependants]
           (add-dirty-cell! cell))))
 
     this)
@@ -190,8 +187,7 @@
 (defmethod pp/simple-dispatch CellImpl
   [cell]
   (let [cell-data (-> cell :cell-data deref)]
-    (pp/simple-dispatch (assoc cell-data :id (:id cell)
-                                         :dependants (dependants cell)))))
+    (pp/simple-dispatch (assoc cell-data :id (:id cell)))))
 
 (defonce ^:private next-cell-id (AtomicInteger. 0))
 
@@ -271,14 +267,14 @@
     (def u (cell
              (println "recalc: u")
              (str/upper-case @s)))
-    (def c (cell
-             (println "recalc: c")
-             (str (apply str (reverse @u))
-                  "-"
-                  @s)))
     (def r (cell
              (println "recalc: r")
              (apply str (reverse @u))))
+    (def c (cell
+             (println "recalc: c")
+             (str @r
+                  "-"
+                  @s)))
     (on-change! u #(println "u changed to" %))
     (on-change! c #(println "c changed to" %))
     (on-change! r #(println "r changed to" %)))
