@@ -9,9 +9,19 @@
   (let [file-cell (or (get @file-cache path)
                       (let [new-cell (cell nil)]
                         (swap! file-cache assoc path new-cell)
-                        new-cell))]
+                        new-cell))
+        [folder-path file-name] (let [slashx (.lastIndexOf path "/")]
+                                  (if (neg? slashx)
+                                    ["" path]
+                                    [(subs path 0 slashx)
+                                     (subs path (inc slashx))]))
+        extension (let [dotx (.lastIndexOf file-name ".")]
+                    (subs file-name (inc dotx)))]
     (f/force! file-cell {:path        path
                          :file        file
+                         :folder-path folder-path
+                         :file-name   file-name
+                         :extension   extension
                          :modified-at (and file (.lastModified file))})))
 
 (defn- relative-path
