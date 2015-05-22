@@ -230,28 +230,26 @@
   (let [source-map @source-cell]
     (cell (get source-map k))))
 
-(defn delta-map-cell
-  "Given a source cell containing a map of keys to cells, returns a new cell
-  containing a map with two keys:  :added, :removed.
-
-  :added is map of new keys to value cells, for keys that did not exist previously.
-
-  :removed is map of prior keys to value cells, for keys that were removed."
+(defn accumulate-map
+  "Accumulates a map from a map in the source cell. On each change to the source-cell, its current
+  state is merged into the value for this cell."
   [source-cell]
-  (let [prior-map (atom nil)]
+  (let [prev-map (atom {})]
+    (cell
+      (swap! prev-map merge @source-cell))))
+
+(defn delta-map
+  "Given a source cell containing a map of keys to cells, returns a new cell
+  containing a map of just the added keys and values (on any change to the source-cell)."
+  [source-cell]
+  (let [prior-keys (atom nil)]
     (cell
       (let [source-map      @source-cell
-            source-map-keys (set (keys source-map))
-            prev-map        @prior-map
-            prev-map-keys   (set (keys prev-map))
-
-            added-keys      (set/difference source-map-keys prev-map-keys)
-            removed-keys    (set/difference prev-map-keys source-map-keys)]
-        ;; Save the source-map for the next iteration:
-        (reset! prior-map source-map)
-
-        {:added   (select-keys source-map added-keys)
-         :removed (select-keys prev-map removed-keys)}))))
+            source-keys     (set (keys source-map))
+            added-keys      (set/difference source-keys @prior-keys)]
+        ;; Save the current set of keys for the next go-around.
+        (reset! prior-keys source-keys)
+        (select-keys source-map added-keys)))))
 
 (defn select-cells
   [key-filter source-cell]
