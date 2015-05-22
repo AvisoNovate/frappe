@@ -2,7 +2,7 @@
             :description "Functional/Reative Programming"
             :dependencies [[org.clojure/clojure "1.7.0-beta3"]
                            [io.aviso/toolchest "0.1.2"]
-                           [medley "0.5.3"]
+                           [medley "0.6.0"]
                            [com.stuartsierra/dependency "0.1.1"]]
             :profiles {:dev {
                              :dependencies [[io.aviso/pretty "0.1.18"]]
