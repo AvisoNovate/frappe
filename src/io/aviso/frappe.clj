@@ -252,7 +252,9 @@
         (select-keys source-map added-keys)))))
 
 (defn select-cells
-  [key-filter source-cell]
+  "Creates a new cell from a source cell containing a map. The new cell
+  contains a subset of the keys from the source cell, based on the key filter."
+  [source-cell key-filter]
   (cell
     (medley/filter-keys key-filter @source-cell)))
 
