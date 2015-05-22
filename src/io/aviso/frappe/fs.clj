@@ -15,12 +15,14 @@
                                     ["" path]
                                     [(subs path 0 slashx)
                                      (subs path (inc slashx))]))
-        extension (let [dotx (.lastIndexOf file-name ".")]
-                    (subs file-name (inc dotx)))]
+        dotx      (.lastIndexOf file-name ".")
+        base-name (subs file-name 0 dotx)
+        extension (subs file-name (inc dotx))]
     (f/force! file-cell {:path        path
                          :file        file
                          :folder-path folder-path
                          :file-name   file-name
+                         :base-name   base-name
                          :extension   extension
                          :modified-at (and file (.lastModified file))})))
 
