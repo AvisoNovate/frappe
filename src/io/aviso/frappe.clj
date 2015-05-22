@@ -224,10 +224,11 @@
           @source-cell)))
 
 (defn project-cell
-  "Given a map of keys to cells, returns a new cell with the same value as the cell
+  "Given a cell containing a map of keys to cells, returns a new cell with the same value as the cell
   with the given key."
   [source-cell k]
-  (cell @(get @source-cell k)))
+  (let [source-map @source-cell]
+    (cell (get source-map k))))
 
 (defn delta-map-cell
   "Given a source cell containing a map of keys to cells, returns a new cell
