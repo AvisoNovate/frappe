@@ -214,23 +214,23 @@
 
 ;;; This is feeling like something that should be dealt with using transducers.
 
-(defn map-cells
+(defn cmap
   "Given a cell that contains a map of keys to cells, returns a new map with the same keys,
   but new cells with the cell values transformed by the value-transform function."
-  [source-cell value-transform]
+  [value-transform source-cell]
   (cell (medley/map-vals
           (fn [value-cell]
             (cell (value-transform @value-cell)))
           @source-cell)))
 
-(defn project-cell
+(defn project
   "Given a cell containing a map of keys to cells, returns a new cell with the same value as the cell
   with the given key."
   [source-cell k]
   (let [source-map @source-cell]
     (cell (get source-map k))))
 
-(defn accumulate-map
+(defn accumulate
   "Accumulates a map from a map in the source cell. On each change to the source-cell, its current
   state is merged into the value for this cell."
   [source-cell]
@@ -238,7 +238,7 @@
     (cell
       (swap! prev-map merge @source-cell))))
 
-(defn delta-map
+(defn delta
   "Given a source cell containing a map of keys to cells, returns a new cell
   containing a map of just the added keys and values (on any change to the source-cell)."
   [source-cell]
@@ -251,10 +251,10 @@
         (reset! prior-keys source-keys)
         (select-keys source-map added-keys)))))
 
-(defn select-cells
+(defn cfilter
   "Creates a new cell from a source cell containing a map. The new cell
   contains a subset of the keys from the source cell, based on the key filter."
-  [source-cell key-filter]
+  [key-filter source-cell]
   (cell
     (medley/filter-keys key-filter @source-cell)))
 
