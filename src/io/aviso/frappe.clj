@@ -4,7 +4,8 @@
             [com.stuartsierra.dependency :as dep]
             [clojure.pprint :as pp]
             [medley.core :as medley]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [clojure.tools.logging :as l])
   (:import [clojure.lang IDeref]
            [java.io Writer]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -13,7 +14,7 @@
   "Identifies the cell that is currently being defined (and executed) to establish dependencies."
   nil)
 
-(def ^:private empty-reaction
+(def ^:no-doc empty-reaction
   {:dirty-cells       #{}
    :pending-recalcs   #{}
    :pending-callbacks []})
@@ -73,6 +74,7 @@
 (defn ^:no-doc finish-reaction!
   []
   (loop [i 0]
+    (l/debugf "Propagating reaction notifications (cycle %d)." (inc i))
     (cond-let
 
       (= 10 i)
@@ -115,7 +117,8 @@
 
         ;; Those cells & callbacks may have changed other things resulting in
         ;; further dirty cells & callbacks.
-        (recur (inc i))))))
+        (recur (inc i)))))
+  (l/debug "Reaction complete."))
 
 (defmacro reaction
   "A reaction is a reactive transaction; it is useful when invoking [[force!]] on several
@@ -145,6 +148,7 @@
   (dependants [_] (:dependants @cell-data))
 
   (recalc! [this]
+    (l/debugf "Forced recalculation of cell %d." id)
     (force! this (f)))
 
   (force! [this new-value]
