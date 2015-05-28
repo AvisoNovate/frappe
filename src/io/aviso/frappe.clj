@@ -74,7 +74,6 @@
 (defn ^:no-doc finish-reaction!
   []
   (loop [i 0]
-    (l/debugf "Propagating reaction notifications (cycle %d)." (inc i))
     (cond-let
 
       (= 10 i)
@@ -117,8 +116,7 @@
 
         ;; Those cells & callbacks may have changed other things resulting in
         ;; further dirty cells & callbacks.
-        (recur (inc i)))))
-  (l/debug "Reaction complete."))
+        (recur (inc i))))))
 
 (defmacro reaction
   "A reaction is a reactive transaction; it is useful when invoking [[force!]] on several
