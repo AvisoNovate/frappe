@@ -5,7 +5,8 @@
             [clojure.pprint :as pp]
             [medley.core :as medley]
             [clojure.set :as set]
-            [clojure.tools.logging :as l])
+            [clojure.tools.logging :as l]
+            [clojure.string :as str])
   (:import [clojure.lang IDeref]
            [java.io Writer]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -163,6 +164,17 @@
 
       :else
       (let [{:keys [change-listeners dependants]} (swap! cell-data assoc :current-value new-value)]
+        (if-not (= *defining-cell* this)
+          (l/debugf "Cell %d value has changed, affecting %s."
+                    id
+                    (if (empty? dependants)
+                      "no other cells"
+                      (str "cell"
+                           (if (< 1 (count dependants)) "s")
+                           " "
+                           (->> dependants
+                                (map :id)
+                                (str/join ", "))))))
         ;; These behaviors are deferred to help avoid redundant work.
         (doseq [listener change-listeners]
           (add-callback! listener new-value))
