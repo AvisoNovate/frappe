@@ -269,6 +269,18 @@
         (reset! prior-keys source-keys)
         (select-keys source-map added-keys)))))
 
+(defn map-values
+  "Given a map of keys to cells, returns a new map of keys to cells. Each new cell is the result of passing the old cell
+  (not the cell's value) through a transformation function.  The returned map cell will only have a dependency on the incoming map cell."
+  [value-xform map-cell]
+  (cell
+    (medley/map-vals
+      ;; This is used to prevent the returned map cell from depending on each transformed cell.
+      ;; It should only depend on the incoming map cell.
+      #(binding [*defining-cell* nil]
+        (value-xform %))
+      @map-cell)))
+
 (defn cfilter
   "Creates a new cell from a source cell containing a map. The new cell
   contains a subset of the keys from the source cell, based on the key filter."
