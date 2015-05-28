@@ -201,7 +201,11 @@
 (defmethod pp/simple-dispatch CellImpl
   [cell]
   (let [cell-data (-> cell :cell-data deref)]
-    (pp/simple-dispatch (assoc cell-data :id (:id cell)))))
+    (pp/simple-dispatch
+      (-> cell-data
+          (select-keys [:current-value :change-listeners])
+          (assoc :id (:id cell)
+                 :dependants (map :id (:dependants cell-data)))))))
 
 (defonce ^:private next-cell-id (AtomicInteger. 0))
 
