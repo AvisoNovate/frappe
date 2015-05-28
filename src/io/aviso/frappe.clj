@@ -51,7 +51,7 @@
 
   (add-dependant! [this other]
     "Adds another cell as a dependant of the this cell. When this cell's value changes,
-    each dependeant is notified to recompute its value.
+    each dependant is notified to recompute its value.
 
     Returns this cell.")
 
