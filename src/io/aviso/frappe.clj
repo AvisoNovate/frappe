@@ -269,16 +269,29 @@
         (reset! prior-keys source-keys)
         (select-keys source-map added-keys)))))
 
+(defmacro ignoring-dependencies
+  "Creates a block where dependencies are not tracked, which is typically used when a container of cells is defined in terms
+  of another container of cells, and a transform applied to the cells.  The new container should depend on just the old container and not
+  on the cells inside the old container.
+
+  For example, this is used by [[map-values]]."
+  [& body]
+  `(binding [*defining-cell* nil] ~@body))
+
 (defn map-values
-  "Given a map of keys to cells, returns a new map of keys to cells. Each new cell is the result of passing the old cell
-  (not the cell's value) through a transformation function.  The returned map cell will only have a dependency on the incoming map cell."
+  "Given a cell containing a map, returns a new map.
+  Each new value is the result of passing the old value through a transformation function.
+  Generally, the map values will themselves be cells.
+
+  The returned map cell will only have a dependency on the incoming map cell,
+  even when the provided map values are cells and the transform function dereferences the cells."
   [value-xform map-cell]
   (cell
     (medley/map-vals
       ;; This is used to prevent the returned map cell from depending on each transformed cell.
       ;; It should only depend on the incoming map cell.
-      #(binding [*defining-cell* nil]
-        (value-xform %))
+      (fn [v]
+        (ignoring-dependencies (value-xform v)))
       @map-cell)))
 
 (defn cfilter
