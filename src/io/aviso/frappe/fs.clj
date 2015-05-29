@@ -4,13 +4,10 @@
             [clojure.java.io :as io])
   (:import [java.io File]))
 
-(defn path->file-cell
-  [file-cache path file]
-  (let [file-cell (or (get @file-cache path)
-                      (let [new-cell (cell nil)]
-                        (swap! file-cache assoc path new-cell)
-                        new-cell))
-        [folder-path file-name] (let [slashx (.lastIndexOf path "/")]
+(defn file-info
+  "Given a path (relative to a root folder) and a File, returns a map of data about that file."
+  [^String path ^File file]
+  (let [[folder-path file-name] (let [slashx (.lastIndexOf path "/")]
                                   (if (neg? slashx)
                                     ["" path]
                                     [(subs path 0 slashx)
@@ -18,13 +15,13 @@
         dotx      (.lastIndexOf file-name ".")
         base-name (subs file-name 0 dotx)
         extension (subs file-name (inc dotx))]
-    (f/force! file-cell {:path        path
-                         :file        file
-                         :folder-path folder-path
-                         :file-name   file-name
-                         :base-name   base-name
-                         :extension   extension
-                         :modified-at (and file (.lastModified file))})))
+    {:path        path
+     :file        file
+     :folder-path folder-path                               ; path up to, not including, last slash
+     :file-name   file-name                                 ; path from past last slash
+     :base-name   base-name                                 ; file-name w/o extension (e.g. "index")
+     :extension   extension                                 ; extension w/o dot (e.g., "html")
+     :modified-at (and file (.lastModified file))}))
 
 (defn- relative-path
   [^File root ^File file]
@@ -41,7 +38,7 @@
           .getName
           (.endsWith suffix)))))
 
-(defn find-file-cells
+(defn find-files
   "Finds files within a root directory, starting from a root path. Files must pass though
   the file filter.
 
@@ -49,20 +46,19 @@
   files will be included in the result (and directories, never).
   The default file-filter includes everything.
 
-  Returns a cell containing a map of path (relative to the root-path) to file map cell."
-  ([root-path file-cache]
-   (find-file-cells root-path file-cache (constantly true)))
-  ([root-path file-cache file-filter]
+  Returns a map of path (relative to the root-path) to file map cell."
+  ([root-path]
+   (find-files root-path (constantly true)))
+  ([root-path file-filter]
    (let [root-file (io/as-file root-path)
          xf        (comp (remove #(.isDirectory %))
                          (filter file-filter)
                          (map #(let [path (relative-path root-file %)]
-                                [path (path->file-cell file-cache path %)])))]
+                                [path (file-info path %)])))]
      (->>
        root-file
        file-seq
-       (into {} xf)
-       cell))))
+       (into {} xf)))))
 
 
 
