@@ -131,7 +131,7 @@
 
 (defrecord CellData [dependants change-listeners current-value])
 
-(defrecord ^:no-doc CellImpl [id f cell-data]
+(defrecord ^:no-doc CellImpl [id f label cell-data]
 
   Cell
 
@@ -147,7 +147,7 @@
   (dependants [_] (:dependants @cell-data))
 
   (recalc! [this]
-    (l/debugf "Forced recalculation of cell %d." id)
+    (l/debugf "Forced recalculation of %s." (pr-str this))
     (force! this (f)))
 
   (force! [this new-value]
@@ -165,16 +165,13 @@
       :else
       (let [{:keys [change-listeners dependants]} (swap! cell-data assoc :current-value new-value)]
         (if-not (= *defining-cell* this)
-          (l/debugf "Cell %d value has changed, affecting %s."
-                    id
+          (l/debugf "%s has changed, affecting %s."
+                    (pr-str this)
                     (if (empty? dependants)
                       "no other cells"
-                      (str "cell"
-                           (if (< 1 (count dependants)) "s")
-                           " "
-                           (->> dependants
-                                (map :id)
-                                (str/join ", "))))))
+                      (->> dependants
+                           (map pr-str)
+                           (str/join ", ")))))
         ;; These behaviors are deferred to help avoid redundant work.
         (doseq [listener change-listeners]
           (add-callback! listener new-value))
@@ -196,7 +193,11 @@
     (:current-value @cell-data)))
 
 (defmethod print-method CellImpl [cell ^Writer w]
-  (.write w (str "io.aviso.frappe.Cell[" (:id cell) "]")))
+  (let [{:keys [id label]} cell]
+    (.write w (str "Cell[" id
+                   (if label
+                     (str " - " label))
+                   "]"))))
 
 (defmethod pp/simple-dispatch CellImpl
   [cell]
@@ -204,8 +205,8 @@
     (pp/simple-dispatch
       (-> cell-data
           (select-keys [:current-value :change-listeners])
-          (assoc :id (:id cell)
-                 :dependants (map :id (:dependants cell-data)))))))
+          (merge (select-keys cell [:id :label]))
+          (assoc :dependants (map :id (:dependants cell-data)))))))
 
 (defonce ^:private next-cell-id (AtomicInteger. 0))
 
@@ -213,10 +214,14 @@
   "Creates a new cell around a function of no arguments that computes its value.
   The function is almost always a closure that can reference other cells.
 
+  The options map currently supports a single key, :label, a string used
+  when printing the cell.
+
   A cell may be dereferenced (use the @ reader macro, or deref special form)."
-  [f]
+  [options f]
   (let [cell (->CellImpl (.incrementAndGet next-cell-id)
                          f
+                         (:label options)
                          (atom (->CellData #{} [] nil)))]
     ;; This forces an evaluation of the cell, which will trigger any dependencies, letting
     ;; us build up the graph.
@@ -226,9 +231,18 @@
     cell))
 
 (defmacro cell
-  "Creates a cell, wrapping the body up as the necessary function used by [[cell*]]."
+  "Creates a cell, wrapping the body up as the necessary function used by [[cell*]].
+
+  If there are two or more forms in the body and the first form is a map, then the first
+  form will be used as the options for the new cell.
+
+  The only current option is :label, a string used when printing the cell."
   [& body]
-  `(cell* (fn [] ~@body)))
+  (if (and (< 1 (count body))
+           (map? (first body)))
+    (let [[options & more-body] body]
+      `(cell* ~options (fn [] ~@more-body)))
+    `(cell* nil (fn [] ~@body))))
 
 ;;; This is feeling like something that should be dealt with using transducers.
 
@@ -307,14 +321,14 @@
     (use 'clojure.pprint)
     (use 'clojure.repl)
     (use 'criterium.core)
-    (def s (cell "Howard"))
-    (def u (cell
+    (def s (cell {:label "root name"} "Howard"))
+    (def u (cell {:label "upper-case"}
              (println "recalc: u")
              (str/upper-case @s)))
-    (def r (cell
+    (def r (cell {:label "reversed"}
              (println "recalc: r")
              (apply str (reverse @u))))
-    (def c (cell
+    (def c (cell {:label "combined"}
              (println "recalc: c")
              (str @r
                   "-"
